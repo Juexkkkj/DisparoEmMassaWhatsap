@@ -1,65 +1,80 @@
-const {
-  default: makeWASocket,
-  useSingleFileAuthState,
-  fetchLatestBaileysVersion,
-  DisconnectReason
-} = require('@adiwajshing/baileys');
+const axios = require('axios');
+// Adicione outras dependências se o seu código original usava, como 'fs' para ler arquivos
+// const fs = require('fs'); 
 
-const { Boom } = require('@hapi/boom');
-const P = require('pino');
+// ==============================================================================
+// 1. CONFIGURAÇÕES DA API (LÊ AS CHAVES DA VERCEL)
+// ==============================================================================
+const API_URL = "https://api.green-api.com";
+const ID_INSTANCE = process.env.ID_INSTANCE;
+const API_TOKEN = process.env.API_TOKEN;
 
-// Salva sessão em arquivo
-const { state, saveState } = useSingleFileAuthState('./auth_info.json');
+// -----------------------------------------------------------------------------
+// !!! IMPORTANTE !!!
+// A LISTA ABAIXO DEVE SER GERADA PELA LEITURA DO SEU ARQUIVO CSV NO CÓDIGO ORIGINAL.
+// Para este exemplo, usaremos apenas um contato de teste.
+// Mantenha o formato: DDI + DDD + Número. O '@c.us' é obrigatório.
+const CONTATOS_PARA_ENVIO = [
+    "557597002889@c.us", // SEU NÚMERO (Para Teste)
+    // "5511999999999@c.us", // Exemplo de Outro Contato
+];
 
-async function startSock() {
-  const { version } = await fetchLatestBaileysVersion();
+const MENSAGEM_PADRAO = "Olá! Sua mensagem de disparo em massa está funcionando com Vercel + Green API!";
+// -----------------------------------------------------------------------------
 
-  const sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: true,
-    logger: P({ level: 'silent' })
-  });
 
-  sock.ev.on('creds.update', saveState);
+// ==============================================================================
+// 2. FUNÇÃO PRINCIPAL DE DISPARO
+// ==============================================================================
+/**
+ * Executa o loop de envio de mensagens para a lista de contatos.
+ */
+async function iniciarDisparo() {
+    console.log(`Iniciando disparo para ${CONTATOS_PARA_ENVIO.length} contatos com a instância ${ID_INSTANCE}`);
+    
+    // Simula a leitura da lista de contatos (se o seu código original lia um CSV, ele iria aqui)
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
+    for (const chatId of CONTATOS_PARA_ENVIO) {
+        try {
+            const endpoint = `${API_URL}/waInstance${ID_INSTANCE}/sendMessage/${API_TOKEN}`;
 
-    if (connection === 'open') {
-      console.log('✅ Conectado ao WhatsApp com sucesso!');
+            await axios.post(endpoint, {
+                chatId: chatId,
+                message: MENSAGEM_PADRAO
+            });
 
-      // ✅ Altere para o número que vai receber a mensagem (formato: DDI+DDD+Número)
-      const jid = '5517991243282@s.whatsapp.net';
+            console.log(`Mensagem enviada com sucesso para: ${chatId}`);
+            
+            // Adicione um pequeno delay para evitar bloqueios por excesso de velocidade (Spam)
+            await new Promise(resolve => setTimeout(resolve, 1000)); 
 
-      const buttons = [
-        { buttonId: 'opcao_1', buttonText: { displayText: '✅ Opção 1' }, type: 1 },
-        { buttonId: 'opcao_2', buttonText: { displayText: '🔍 Opção 2' }, type: 1 }
-      ];
-
-      const buttonMessage = {
-        text: 'Escolha uma opção:',
-        footer: 'Bot de teste - Baileys',
-        buttons: buttons,
-        headerType: 1
-      };
-
-      await sock.sendMessage(jid, buttonMessage);
-      console.log('📨 Mensagem com botões enviada!');
+        } catch (error) {
+            console.error(`❌ Erro ao enviar para ${chatId}:`, error.response ? error.response.data : error.message);
+        }
     }
+    console.log('Fim do processo de disparo.');
+} 
 
-    if (connection === 'close') {
-      const shouldReconnect =
-        lastDisconnect?.error instanceof Boom &&
-        lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut;
 
-      console.log('❌ Conexão encerrada.', shouldReconnect ? 'Reconectando...' : 'Você saiu da sessão.');
+// ==============================================================================
+// 3. GATILHO VERCEL (O QUE CORRIGE O ERRO 404)
+// ==============================================================================
 
-      if (shouldReconnect) {
-        startSock();
-      }
+// Esta função é o ponto de entrada Serverless da Vercel.
+module.exports = async (request, response) => {
+    try {
+        if (!ID_INSTANCE || !API_TOKEN) {
+            return response.status(500).send('Erro: Chaves ID_INSTANCE ou API_TOKEN não configuradas na Vercel.');
+        }
+
+        // Executa a lógica de disparo
+        await iniciarDisparo(); 
+        
+        // Retorna uma resposta de sucesso HTTP.
+        response.status(200).send('Disparo em massa iniciado com sucesso! O script rodou.');
+    
+    } catch (error) {
+        console.error('Erro de Execução do Script:', error);
+        response.status(500).send('Erro interno do servidor. Verifique os logs.');
     }
-  });
-}
-
-startSock();
+};
